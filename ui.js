@@ -38,6 +38,7 @@ const ICONS = {
   chart: svg('<path d="M4 20h16"/><path d="M7.5 20v-6M12.5 20V6M17.5 20v-9"/>'),
   star: svg('<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.7l5.9-.9L12 3.5z"/>'),
   freeze: svg('<path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/><path d="M12 3l-2 2.5M12 3l2 2.5M12 21l-2-2.5M12 21l2-2.5"/>'),
+  dumbbell: svg('<path d="M6.5 6.5v11M3.5 9v6M17.5 6.5v11M20.5 9v6M6.5 12h11"/>'),
 };
 function icon(name) { return ICONS[name] || ""; }
 /* Profile photo (data URL) or fallback icon. Never escape: src is canvas-generated. */
@@ -332,9 +333,9 @@ function renderBadges() {
   for (const b of checkBadges(pid)) if (!earned[b.id]) { earned[b.id] = b.earnedDate; }
   saveState();
   return `<div class="card"><h2>${icon("award")} Badge Shelf</h2>
-      <p class="sub">${esc(profileName(pid))} · ${Object.keys(earned).length} of ${BADGES.length} earned</p></div>
+      <p class="sub">${esc(profileName(pid))} · ${Object.keys(earned).length} of ${allBadges().length} earned</p></div>
     <div class="badge-grid">` +
-    BADGES.map(b => {
+    allBadges().map(b => {
       const e = earned[b.id];
       return `<div class="badge-card ${e ? "" : "locked"}">
         <div class="emoji">${b.emoji}</div>
@@ -386,6 +387,55 @@ function renderParent() {
       </div>`).join("") +
     `<div style="margin-top:6px"><button class="btn primary small" data-action="rename-save">${icon("check")} Save names</button></div>
     <p class="muted">Photos are resized small and stored on this device only.</p></div>`;
+
+  // Cloud sync (optional, free)
+  html += `<div class="card"><div class="section-title">${icon("upload")} Cloud Sync <span class="muted" style="font-weight:400">· optional, free</span></div>
+    <p class="sub">Keep data safe across devices &amp; browsers. Data is encrypted on this device with your family code — the server only sees scrambled text.</p>
+    <div class="today-line" id="cloudStatus">${esc(cloudStatusText())}</div>
+    <label class="field">Supabase URL</label>
+    <input id="cloud-url" value="${esc(S.cloud.url)}" placeholder="https://xyz.supabase.co" autocomplete="off">
+    <label class="field">Anon (public) key</label>
+    <input id="cloud-key" type="password" value="${esc(S.cloud.key)}" placeholder="eyJ…" autocomplete="off">
+    <label class="field">Family sync code — your encryption key, don't forget it!</label>
+    <input id="cloud-code" type="password" value="${esc(S.cloud.code)}" placeholder="e.g. sunny-tiger-42" autocomplete="off">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:700">
+      <input type="checkbox" id="cloud-auto" ${S.cloud.auto ? "checked" : ""} style="width:auto"> Auto-sync changes to cloud</label>
+    <div class="btn-row" style="margin-top:10px">
+      <button class="btn primary small" data-action="cloud-save">${icon("check")} Save</button>
+      <button class="btn blue small" data-action="cloud-push">${icon("upload")} Push</button>
+      <button class="btn ghost small" data-action="cloud-pull">${icon("download")} Pull</button>
+    </div>
+    <details style="margin-top:10px"><summary style="font-weight:700;cursor:pointer">One-time setup guide (~5 min, free)</summary>
+      <ol class="muted" style="line-height:1.7;padding-left:20px">
+        <li>Create a free account at <b>supabase.com</b> → <b>New project</b>.</li>
+        <li>Open <b>SQL Editor</b> → New query, paste &amp; run:
+          <pre style="white-space:pre-wrap;background:#f4f1ff;padding:8px;border-radius:8px;font-size:.75rem">create table family_sync (
+  code text primary key,
+  payload jsonb not null,
+  updated_at timestamptz default now()
+);
+alter table family_sync enable row level security;
+create policy "open sync" on family_sync for all
+  using (true) with check (true);</pre></li>
+        <li><b>Project Settings → API</b>: copy the <b>Project URL</b> and the <b>anon public</b> key.</li>
+        <li>Paste them above, invent a <b>family sync code</b>, tap <b>Save</b>, then <b>Push</b>.</li>
+        <li>On the other device/browser: paste the same URL, key &amp; code, tap <b>Save</b>, then <b>Pull</b>.</li>
+      </ol>
+      <p class="muted">Your payload is encrypted — Supabase can't read it. Anyone who guesses your code could overwrite it, so pick a code that's hard to guess.</p>
+    </details>
+  </div>`;
+
+  // Custom badges
+  html += `<div class="card"><div class="section-title">${icon("award")} Badges</div>
+    <p class="sub">Built-in badges plus your own — make one for anything you want to encourage!</p>`;
+  for (const b of allBadges()) {
+    html += `<div class="entry-row"><span style="font-size:1.6rem">${b.emoji}</span>
+      <span class="grow"><b>${esc(b.name)}</b> <span class="muted">· ${b.custom ? "custom" : "built-in"}</span><br>
+      <span class="muted">${esc(b.desc)}${b.custom ? ` · <i>${esc(badgeRuleText(b))}</i>` : ""}</span></span>
+      ${b.custom ? `<button class="icon-btn" data-action="badge-edit-open" data-bid="${b.id}" title="Edit">${icon("pencil")}</button>
+      <button class="icon-btn red" data-action="badge-delete" data-bid="${b.id}" title="Delete">${icon("trash")}</button>` : ""}</div>`;
+  }
+  html += `<div style="margin-top:10px"><button class="btn blue small" data-action="badge-add-open">${icon("plus")} Add custom badge</button></div></div>`;
 
   // Activities
   html += `<div class="card"><div class="section-title">${icon("clipboard")} Activities</div>`;
@@ -628,6 +678,25 @@ function activityFormHTML(a) {
     </div>
     <div style="margin-top:14px"><button class="btn primary" data-action="${isNew ? "add-activity-save" : "edit-activity-save"}" data-aid="${isNew ? "" : a.id}">${icon("check")} ${isNew ? "Add activity" : "Save changes"}</button></div>`;
 }
+function badgeFormHTML(b) {
+  const isNew = !b;
+  b = b || { name: "", emoji: "🏅", desc: "", hint: "", rule: { activityId: "reading", target: 30, period: "day" } };
+  const r = b.rule || { activityId: "reading", target: 30, period: "day" };
+  return `
+    <label class="field">Badge name</label><input id="bf-name" value="${esc(b.name)}" maxlength="24" placeholder="e.g. Weekend Warrior">
+    <label class="field">Emoji</label><input id="bf-emoji" value="${esc(b.emoji || "🏅")}" maxlength="8" placeholder="🏅">
+    <label class="field">Description (shown when earned)</label><input id="bf-desc" value="${esc(b.desc || "")}" maxlength="80" placeholder="e.g. Sports on both weekend days!">
+    <label class="field">Hint (shown while locked)</label><input id="bf-hint" value="${esc(b.hint || "")}" maxlength="80" placeholder="e.g. Log sports on Saturday and Sunday.">
+    <label class="field">Activity</label><select id="bf-activity">
+      ${S.activities.map(a => `<option value="${a.id}" ${r.activityId === a.id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
+    <label class="field">Target amount</label><input id="bf-target" type="number" min="1" max="10000" value="${r.target || 30}">
+    <label class="field">In one…</label><select id="bf-period">
+      <option value="day" ${r.period !== "week" ? "selected" : ""}>day</option>
+      <option value="week" ${r.period === "week" ? "selected" : ""}>week</option></select>
+    <p class="muted">Example: 30 + Sports + day = "30 min of Sports in one day".</p>
+    <div style="margin-top:14px"><button class="btn primary" data-action="${isNew ? "badge-add-save" : "badge-edit-save"}" data-bid="${isNew ? "" : b.id}">${icon("check")} ${isNew ? "Add badge" : "Save badge"}</button></div>`;
+}
+
 function entryFormHTML(e) {
   const act = getActivity(e.activityId);
   const unit = act ? act.unit : "count";
@@ -814,6 +883,73 @@ document.addEventListener("click", ev => {
       refreshSaveStatus();
       toast(storageOK() ? "All data saved on this device ✓" : "Couldn't save — browser is blocking storage. Use Export!");
       break;
+
+    case "cloud-save": {
+      S.cloud.provider = "supabase";
+      S.cloud.url = val("cloud-url").replace(/\/+$/, "");
+      S.cloud.key = val("cloud-key");
+      S.cloud.code = val("cloud-code");
+      const autoEl = document.getElementById("cloud-auto");
+      S.cloud.auto = !!(autoEl && autoEl.checked);
+      S.cloud.lastError = null;
+      saveState({ touch: false });
+      updateCloudUI();
+      toast(cloudConfigured() ? "Cloud settings saved." : "Fill in URL, key and family code to enable sync.");
+      break;
+    }
+    case "cloud-push": pushCloud(false); break;
+    case "cloud-pull": pullCloud(false); break;
+
+    case "badge-add-open": openModal("Add Badge", "plus", badgeFormHTML(null)); break;
+    case "badge-edit-open": {
+      const b = (S.customBadges || []).find(x => x.id === el.dataset.bid);
+      if (b) openModal("Edit Badge", "pencil", badgeFormHTML(b));
+      break;
+    }
+    case "badge-add-save":
+    case "badge-edit-save": {
+      const name = val("bf-name");
+      const target = Math.round(Number(val("bf-target")));
+      const act = getActivity(val("bf-activity"));
+      if (!name) { toast("Give the badge a name."); break; }
+      if (!act) { toast("Pick an activity."); break; }
+      if (!(target > 0)) { toast("Target must be at least 1."); break; }
+      const data = {
+        name: name.slice(0, 24),
+        emoji: val("bf-emoji") || "🏅",
+        desc: val("bf-desc") || name,
+        hint: val("bf-hint") || val("bf-desc") || "Keep going!",
+        custom: true,
+        rule: { activityId: act.id, target, period: val("bf-period") === "week" ? "week" : "day" },
+      };
+      if (a === "badge-add-save") {
+        data.id = uid();
+        S.customBadges.push(data);
+        toast(`Badge "${data.name}" added!`);
+      } else {
+        const b = (S.customBadges || []).find(x => x.id === el.dataset.bid);
+        if (!b) break;
+        Object.assign(b, data);
+        toast("Badge updated.");
+      }
+      // Immediately award it if already earned.
+      for (const p of S.profiles) {
+        const earned = S.earnedBadges[p.id] || {};
+        for (const eb of checkBadges(p.id)) if (!earned[eb.id]) earned[eb.id] = eb.earnedDate;
+      }
+      saveState(); closeModal(); render();
+      break;
+    }
+    case "badge-delete": {
+      const b = (S.customBadges || []).find(x => x.id === el.dataset.bid);
+      if (!b) break;
+      if (!confirm(`Delete the "${b.name}" badge?`)) break;
+      S.customBadges = S.customBadges.filter(x => x.id !== b.id);
+      for (const p of S.profiles) { if (S.earnedBadges[p.id]) delete S.earnedBadges[p.id][b.id]; }
+      saveState(); render(); toast("Badge deleted.");
+      break;
+    }
+
     case "export-json": {
       const blob = new Blob([JSON.stringify(S, null, 2)], { type: "application/json" });
       const aEl = document.createElement("a");
@@ -891,8 +1027,14 @@ window.addEventListener("resize", () => {
 window.addEventListener("beforeunload", () => { try { saveState(); } catch (e) {} });
 // Also re-save periodically, so a crash between edits loses at most a minute.
 setInterval(() => { try { saveState(); } catch (e) {} }, 60000);
-// Keep the Parent > Data save-status line fresh after every save.
-window.addEventListener("fl-saved", refreshSaveStatus);
+// Keep the Parent > Data save-status line fresh after every save,
+// and queue a cloud auto-push when one's due.
+window.addEventListener("fl-saved", () => {
+  refreshSaveStatus();
+  if (typeof scheduleAutoPush === "function") {
+    try { scheduleAutoPush(); } catch (e) {}
+  }
+});
 
 /* ---------------- init ---------------- */
 (function init() {
@@ -901,4 +1043,11 @@ window.addEventListener("fl-saved", refreshSaveStatus);
   // Weekly freeze tokens auto-reset inside freezeState(); touch both profiles.
   freezeState("kid"); freezeState("dad");
   render();
+  // If cloud sync was left on, quietly pull the latest on launch.
+  if (typeof pullCloud === "function" && S.cloud && S.cloud.auto) {
+    try {
+      const p = pullCloud(true);
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    } catch (e) {}
+  }
 })();

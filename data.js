@@ -77,6 +77,8 @@ function defaultActivities() {
       timer: true, profiles: ["kid", "dad"], custom: false, icon: "guitar", color: "#ff6b9d" },
     { id: "reading", name: "Reading", unit: "minutes", xpPerUnit: 1, xpNote: "1 XP per minute",
       timer: true, profiles: ["kid", "dad"], custom: false, icon: "book", color: "#ff8c42" },
+    { id: "sport", name: "Sports", unit: "minutes", xpPerUnit: 1, xpNote: "1 XP per minute",
+      timer: true, profiles: ["kid", "dad"], custom: false, icon: "dumbbell", color: "#00b8a9" },
     { id: "homework", name: "Homework", unit: "sessions", xpPerUnit: 15, xpNote: "15 XP per 25-min session",
       quick: 1, profiles: ["kid"], custom: false, icon: "book", color: "#3aa7ff" },
     { id: "chores", name: "Chores", unit: "count", xpPerUnit: 10, xpNote: "10 XP per chore",
@@ -102,7 +104,16 @@ function defaultState() {
     activities: defaultActivities(),
     entries: [],                 // {id, profileId, activityId, date, value, xp, ts}
     earnedBadges: { kid: {}, dad: {} },  // badgeId -> dateStr earned
+    customBadges: [],            // user badges {id,name,emoji,desc,hint,custom:true,rule:{activityId,target,period}}
     freezes: { kid: null, dad: null },   // {week, tokens, used:[dateStr]}
+    cloud: {                    // optional cross-device sync (Supabase, encrypted)
+      provider: null,           // null | "supabase"
+      url: "", key: "", code: "",
+      auto: false,
+      lastSyncAt: null,
+      lastError: null,
+    },
+    updatedAt: 0,                // ms epoch of last local change (for sync merge)
     parentUnlocked: false,       // session-only; always reset on load
   };
 }
@@ -135,10 +146,16 @@ function loadState() {
     if (!("photo" in p)) p.photo = null;      // backfill for older saves
     if (p.id === "dad" && p.name === "Dad") p.name = "Parent"; // renamed default
   }
-  // Backfill the Reading activity for saves created before it existed.
-  if (!merged.activities.some(a => a.id === "reading")) {
-    merged.activities.push(defaultActivities().find(a => a.id === "reading"));
+  // Backfill the Reading/Sports activities for saves created before they existed.
+  for (const actId of ["reading", "sport"]) {
+    if (!merged.activities.some(a => a.id === actId)) {
+      const def = defaultActivities().find(a => a.id === actId);
+      if (def) merged.activities.push(def);
+    }
   }
+  if (!Array.isArray(merged.customBadges)) merged.customBadges = [];
+  if (!merged.cloud) merged.cloud = defaultState().cloud;
+  if (typeof merged.updatedAt !== "number") merged.updatedAt = 0;
   if (recovered) {
     // Re-seed the primary key from the backup so the next load is fast.
     try {
@@ -149,8 +166,10 @@ function loadState() {
   return merged;
 }
 
-function saveState() {
+function saveState(opts) {
   try {
+    // Stamp local changes (skipped for internal sync writes).
+    if (!opts || opts.touch !== false) S.updatedAt = Date.now();
     // Never persist the unlocked flag.
     const copy = Object.assign({}, S, { parentUnlocked: false });
     const json = JSON.stringify(copy);

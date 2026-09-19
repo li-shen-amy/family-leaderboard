@@ -323,11 +323,56 @@ const BADGES = [
       const d = Object.keys(byDate).find(d => byDate[d] >= 30);
       return d || null;
     } },
+  { id: "sport-star", name: "Sport Star", emoji: "⚽",
+    desc: "30 active sport minutes in one day.",
+    hint: "Log 30 minutes of sports in a single day.",
+    check(pid) {
+      const byDate = {};
+      for (const e of entriesFor(pid, "sport")) {
+        byDate[e.date] = (byDate[e.date] || 0) + Number(e.value || 0);
+      }
+      const d = Object.keys(byDate).find(d => byDate[d] >= 30);
+      return d || null;
+    } },
 ];
+
+/* ---------- custom (parent-defined) badges ----------
+   Stored as plain data: {id,name,emoji,desc,hint,custom:true,
+   rule:{activityId, target, period:"day"|"week"}}.
+   Checks are rebuilt from the rule at runtime so they survive JSON. */
+function customBadgeDate(pid, rule) {
+  if (!rule || !rule.activityId || !(rule.target > 0)) return null;
+  const act = getActivity(rule.activityId);
+  const byPeriod = {};
+  for (const e of entriesFor(pid, rule.activityId)) {
+    const key = rule.period === "week" ? mondayOf(e.date) : e.date;
+    const inc = act && act.unit === "time" ? 1 : Number(e.value || 0);
+    byPeriod[key] = (byPeriod[key] || 0) + inc;
+  }
+  const k = Object.keys(byPeriod).find(k => byPeriod[k] >= rule.target);
+  return k || null;
+}
+function rehydrateBadge(b) {
+  if (!b || !b.custom || typeof b.check === "function") return b;
+  return Object.assign({}, b, { check: pid => customBadgeDate(pid, b.rule) });
+}
+/* Every badge the app knows about: built-ins + parent-created. */
+function allBadges() {
+  return BADGES.concat((S.customBadges || []).map(rehydrateBadge));
+}
+/* Human-readable rule summary for a custom badge. */
+function badgeRuleText(b) {
+  const r = b.rule || {};
+  const act = getActivity(r.activityId);
+  const what = act ? act.name : "activity";
+  const unitWord = act && act.unit === "time" ? "logs" :
+    { minutes: "min", sessions: "sessions", count: "", servings: "servings" }[(act && act.unit) || ""] || "";
+  return `${r.target || "?"}${unitWord ? " " + unitWord : ""} of ${what} in one ${r.period === "week" ? "week" : "day"}`;
+}
 /* Returns [{...badge, earnedDate}] for badges whose check passes. */
 function checkBadges(pid) {
   const out = [];
-  for (const b of BADGES) {
+  for (const b of allBadges()) {
     try {
       const d = b.check(pid);
       if (d) out.push(Object.assign({}, b, { earnedDate: d }));
