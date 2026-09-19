@@ -40,6 +40,11 @@ const ICONS = {
   freeze: svg('<path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/><path d="M12 3l-2 2.5M12 3l2 2.5M12 21l-2-2.5M12 21l2-2.5"/>'),
 };
 function icon(name) { return ICONS[name] || ""; }
+/* Profile photo (data URL) or fallback icon. Never escape: src is canvas-generated. */
+function avatarHTML(p, cls) {
+  if (p && p.photo) return `<img class="${cls || "avatar"}" src="${p.photo}" alt="">`;
+  return icon("users");
+}
 
 const TABS = [
   { id: "log", label: "Log", icon: "clipboard" },
@@ -129,7 +134,7 @@ function afterLog(result, fallbackMsg) {
 /* ---------------- header / tabs ---------------- */
 function renderHeader() {
   document.getElementById("profileSwitch").innerHTML = S.profiles.map(p =>
-    `<button class="profile-btn ${p.id === S.activeProfileId ? "active" : ""}" data-action="switch-profile" data-pid="${p.id}">${icon("users")}<span>${esc(p.name)}</span></button>`
+    `<button class="profile-btn ${p.id === S.activeProfileId ? "active" : ""}" data-action="switch-profile" data-pid="${p.id}">${avatarHTML(p)}<span>${esc(p.name)}</span></button>`
   ).join("");
   const pid = S.activeProfileId;
   const xp = profileXP(pid), lvl = levelFor(xp), [lo, hi] = xpBounds(lvl);
@@ -219,9 +224,9 @@ function renderLog() {
 }
 
 /* ---------------- BOARDS tab ---------------- */
-function barRow(name, xp, max, cls, extra) {
+function barRow(name, xp, max, cls, extra, avatar) {
   const pct = max > 0 ? (xp / max * 100).toFixed(1) : 0;
-  return `<div class="standing-row"><span class="who">${esc(name)}</span>
+  return `<div class="standing-row">${avatar || ""}<span class="who">${esc(name)}</span>
     <div class="track"><div class="fill ${cls || ""}" style="width:${pct}%"></div></div>
     <span class="pts">${xp} XP</span>${extra || ""}</div>`;
 }
@@ -243,7 +248,7 @@ function renderBoards() {
   for (const s of st) {
     const diff = weekXP(s.pid, wk) - weekXP(s.pid, lastWk);
     const crown = leader && s.pid === leader.pid ? `<span class="crown">${icon("trophy")}</span>` : "";
-    html += barRow(s.name, s.xp, max, s.pid === "dad" ? "dad" : "", crown) +
+    html += barRow(s.name, s.xp, max, s.pid === "dad" ? "dad" : "", crown, avatarHTML(getProfile(s.pid), "avatar-sm")) +
       `<div style="margin:-6px 0 8px 84px">${deltaHTML(diff)}</div>`;
   }
   html += `</div>`;
@@ -261,7 +266,7 @@ function renderBoards() {
     streak: currentStreak(activeDateSet(p.id, null)) }));
   const amax = Math.max(1, ...all.map(a => a.xp));
   for (const a of all) {
-    html += barRow(`${a.name} · Lv${a.lvl}`, a.xp, amax, a.pid === "dad" ? "dad" : "") +
+    html += barRow(`${a.name} · Lv${a.lvl}`, a.xp, amax, a.pid === "dad" ? "dad" : "", "", avatarHTML(getProfile(a.pid), "avatar-sm")) +
       `<div class="muted" style="margin:-4px 0 8px 84px"><span class="streak-flame" style="font-size:.95rem">${icon("flame")} ${a.streak}-day streak</span></div>`;
   }
   html += `</div>`;
@@ -364,11 +369,23 @@ function renderParent() {
     <p class="sub">Verify entries, manage activities, freezes, and data.</p>
     <button class="btn ghost small" data-action="parent-lock">${icon("lock")} Lock parent area</button></div>`;
 
-  // Profiles
+  // Profiles — names + photos
   html += `<div class="card"><div class="section-title">${icon("users")} Profiles</div>` +
-    S.profiles.map(p => `<label class="field">${p.id === "kid" ? "Kid" : "Dad"} name</label>
-      <input id="pname-${p.id}" value="${esc(p.name)}" maxlength="20">`).join("") +
-    `<div style="margin-top:10px"><button class="btn primary small" data-action="rename-save">${icon("check")} Save names</button></div></div>`;
+    S.profiles.map(p => `
+      <div class="profile-edit">
+        <div class="photo-prev">${avatarHTML(p, "avatar-lg")}</div>
+        <div class="grow">
+          <label class="field">${p.id === "kid" ? "Kid" : "Parent"} name</label>
+          <input id="pname-${p.id}" value="${esc(p.name)}" maxlength="20">
+          <div class="btn-row" style="margin-top:8px">
+            <label class="btn ghost small" style="cursor:pointer">${icon("upload")} Photo
+              <input type="file" data-photo-for="${p.id}" accept="image/*" hidden></label>
+            ${p.photo ? `<button class="btn ghost small" data-action="photo-remove" data-pid="${p.id}">${icon("x")} Remove</button>` : ""}
+          </div>
+        </div>
+      </div>`).join("") +
+    `<div style="margin-top:6px"><button class="btn primary small" data-action="rename-save">${icon("check")} Save names</button></div>
+    <p class="muted">Photos are resized small and stored on this device only.</p></div>`;
 
   // Activities
   html += `<div class="card"><div class="section-title">${icon("clipboard")} Activities</div>`;
@@ -590,7 +607,7 @@ function activityFormHTML(a) {
     <label class="field">Visible to</label>
     <div class="btn-row">
       <label style="flex:1"><input type="checkbox" id="af-kid" ${a.profiles.includes("kid") ? "checked" : ""} style="width:auto"> Kid</label>
-      <label style="flex:1"><input type="checkbox" id="af-dad" ${a.profiles.includes("dad") ? "checked" : ""} style="width:auto"> Dad</label>
+      <label style="flex:1"><input type="checkbox" id="af-dad" ${a.profiles.includes("dad") ? "checked" : ""} style="width:auto"> Parent</label>
     </div>
     <div style="margin-top:14px"><button class="btn primary" data-action="${isNew ? "add-activity-save" : "edit-activity-save"}" data-aid="${isNew ? "" : a.id}">${icon("check")} ${isNew ? "Add activity" : "Save changes"}</button></div>`;
 }
@@ -679,6 +696,12 @@ document.addEventListener("click", ev => {
         if (n) p.name = n.slice(0, 20);
       }
       saveState(); render(); toast("Names saved."); break;
+    }
+
+    case "photo-remove": {
+      const p = getProfile(el.dataset.pid);
+      if (p) { p.photo = null; saveState(); render(); toast("Photo removed."); }
+      break;
     }
 
     case "add-activity-open": openModal("Add Activity", "plus", activityFormHTML(null)); break;
@@ -787,8 +810,36 @@ document.addEventListener("click", ev => {
   }
 });
 
-/* import file */
+/* profile photos: downscale to keep localStorage small, store as data URL */
+function handlePhotoFile(input, pid) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  if (!f.type.startsWith("image/")) { toast("Please pick an image file."); input.value = ""; return; }
+  const img = new Image();
+  const url = URL.createObjectURL(f);
+  img.onload = () => {
+    const max = 160;
+    const scale = Math.min(1, max / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    cv.getContext("2d").drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(url);
+    const p = getProfile(pid);
+    if (p) { p.photo = cv.toDataURL("image/jpeg", 0.82); saveState(); render(); toast("Photo updated!"); }
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast("Couldn't read that image."); };
+  img.src = url;
+  input.value = "";
+}
+
+/* import file + profile photo picker */
 document.addEventListener("change", ev => {
+  if (ev.target.dataset && ev.target.dataset.photoFor) {
+    handlePhotoFile(ev.target, ev.target.dataset.photoFor);
+    return;
+  }
   if (ev.target.id !== "importFile") return;
   const f = ev.target.files[0];
   if (!f) return;

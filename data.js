@@ -90,8 +90,8 @@ function defaultState() {
     version: 1,
     pinHash: null,               // set on first visit to Parent tab
     profiles: [
-      { id: "kid", name: "Kid" },
-      { id: "dad", name: "Dad" },
+      { id: "kid", name: "Kid", photo: null },
+      { id: "dad", name: "Parent", photo: null },
     ],
     activeProfileId: "kid",
     activeTab: "log",
@@ -115,6 +115,8 @@ function loadState() {
     merged.parentUnlocked = false;
     for (const p of merged.profiles) {
       if (!merged.earnedBadges[p.id]) merged.earnedBadges[p.id] = {};
+      if (!("photo" in p)) p.photo = null;      // backfill for older saves
+      if (p.id === "dad" && p.name === "Dad") p.name = "Parent"; // renamed default
     }
     return merged;
   } catch (e) {
