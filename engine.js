@@ -312,6 +312,17 @@ const BADGES = [
       const d = Object.keys(byDate).find(d => byDate[d] >= 5);
       return d || null;
     } },
+  { id: "bookworm", name: "Bookworm", emoji: "📖",
+    desc: "Read for 30 minutes in one day.",
+    hint: "Log 30 minutes of reading in a single day.",
+    check(pid) {
+      const byDate = {};
+      for (const e of entriesFor(pid, "reading")) {
+        byDate[e.date] = (byDate[e.date] || 0) + Number(e.value || 0);
+      }
+      const d = Object.keys(byDate).find(d => byDate[d] >= 30);
+      return d || null;
+    } },
 ];
 /* Returns [{...badge, earnedDate}] for badges whose check passes. */
 function checkBadges(pid) {

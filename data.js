@@ -7,6 +7,8 @@
    ============================================================ */
 
 const LS_KEY = "familyLeaderboard.v1";
+const LS_BACKUP_KEY = "familyLeaderboard.v1.backup";
+const LS_META_KEY = "familyLeaderboard.v1.meta";
 
 /* ---------- tiny utils ---------- */
 function uid() {
@@ -73,6 +75,8 @@ function defaultActivities() {
       timer: true, profiles: ["kid", "dad"], custom: false, icon: "piano", color: "#7c5cff" },
     { id: "guitar", name: "Guitar", unit: "minutes", xpPerUnit: 1, xpNote: "1 XP per minute",
       timer: true, profiles: ["kid", "dad"], custom: false, icon: "guitar", color: "#ff6b9d" },
+    { id: "reading", name: "Reading", unit: "minutes", xpPerUnit: 1, xpNote: "1 XP per minute",
+      timer: true, profiles: ["kid", "dad"], custom: false, icon: "book", color: "#ff8c42" },
     { id: "homework", name: "Homework", unit: "sessions", xpPerUnit: 15, xpNote: "15 XP per 25-min session",
       quick: 1, profiles: ["kid"], custom: false, icon: "book", color: "#3aa7ff" },
     { id: "chores", name: "Chores", unit: "count", xpPerUnit: 10, xpNote: "10 XP per chore",
@@ -103,36 +107,86 @@ function defaultState() {
   };
 }
 
-function loadState() {
+function readStateRaw(key) {
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return defaultState();
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
     const s = JSON.parse(raw);
-    if (!s || s.version !== 1 || !Array.isArray(s.entries)) return defaultState();
-    // Backfill anything missing so old saves never crash new code.
-    const d = defaultState();
-    const merged = Object.assign(d, s);
-    merged.parentUnlocked = false;
-    for (const p of merged.profiles) {
-      if (!merged.earnedBadges[p.id]) merged.earnedBadges[p.id] = {};
-      if (!("photo" in p)) p.photo = null;      // backfill for older saves
-      if (p.id === "dad" && p.name === "Dad") p.name = "Parent"; // renamed default
-    }
-    return merged;
-  } catch (e) {
-    console.warn("Could not load saved data, starting fresh.", e);
-    return defaultState();
+    // Backup wraps the state: {savedAt, state}
+    const state = (s && s.state && s.savedAt) ? s.state : s;
+    if (!state || state.version !== 1 || !Array.isArray(state.entries)) return null;
+    return state;
+  } catch (e) { return null; }
+}
+
+function loadState() {
+  // Primary first, backup second — so a cleared/evicted primary key
+  // can still be recovered.
+  let s = readStateRaw(LS_KEY);
+  let recovered = false;
+  if (!s) { s = readStateRaw(LS_BACKUP_KEY); recovered = !!s; }
+  if (!s) return defaultState();
+  // Backfill anything missing so old saves never crash new code.
+  const d = defaultState();
+  const merged = Object.assign(d, s);
+  merged.parentUnlocked = false;
+  for (const p of merged.profiles) {
+    if (!merged.earnedBadges[p.id]) merged.earnedBadges[p.id] = {};
+    if (!("photo" in p)) p.photo = null;      // backfill for older saves
+    if (p.id === "dad" && p.name === "Dad") p.name = "Parent"; // renamed default
   }
+  // Backfill the Reading activity for saves created before it existed.
+  if (!merged.activities.some(a => a.id === "reading")) {
+    merged.activities.push(defaultActivities().find(a => a.id === "reading"));
+  }
+  if (recovered) {
+    // Re-seed the primary key from the backup so the next load is fast.
+    try {
+      const copy = Object.assign({}, merged, { parentUnlocked: false });
+      localStorage.setItem(LS_KEY, JSON.stringify(copy));
+    } catch (e) { /* ignore */ }
+  }
+  return merged;
 }
 
 function saveState() {
   try {
     // Never persist the unlocked flag.
     const copy = Object.assign({}, S, { parentUnlocked: false });
-    localStorage.setItem(LS_KEY, JSON.stringify(copy));
+    const json = JSON.stringify(copy);
+    localStorage.setItem(LS_KEY, json);
+    // Second copy under a different key + a small meta record, so if the
+    // browser ever evicts one key we can recover from the other.
+    try {
+      localStorage.setItem(LS_BACKUP_KEY, JSON.stringify({ savedAt: Date.now(), state: copy }));
+      localStorage.setItem(LS_META_KEY, JSON.stringify({ lastSavedAt: Date.now() }));
+    } catch (e) { /* backup is best-effort */ }
+    if (typeof window !== "undefined" && window.dispatchEvent) {
+      window.dispatchEvent(new Event("fl-saved"));
+    }
   } catch (e) {
     console.warn("Could not save data (storage full or blocked?).", e);
   }
+}
+
+/* When was data last saved on this device (ms epoch), or null. */
+function lastSavedAt() {
+  try {
+    const raw = localStorage.getItem(LS_META_KEY);
+    if (!raw) return null;
+    const m = JSON.parse(raw);
+    return (m && m.lastSavedAt) || null;
+  } catch (e) { return null; }
+}
+
+/* Quick check that localStorage actually persists here. */
+function storageOK() {
+  try {
+    const k = "__fl_probe__";
+    localStorage.setItem(k, "1");
+    localStorage.removeItem(k);
+    return true;
+  } catch (e) { return false; }
 }
 
 /* ---------- lookups ---------- */

@@ -421,18 +421,35 @@ function renderParent() {
 
   // Data
   html += `<div class="card"><div class="section-title">${icon("download")} Data</div>
+    <div class="today-line" id="saveStatus">${esc(saveStatusText())}</div>
     <div class="btn-row" style="margin-bottom:10px">
+      <button class="btn primary small" data-action="save-now">${icon("check")} Save now</button>
       <button class="btn blue small" data-action="export-json">${icon("download")} Export</button>
       <button class="btn ghost small" data-action="import-json">${icon("upload")} Import</button>
     </div>
     <input type="file" id="importFile" accept="application/json" hidden>
     <button class="btn danger small" data-action="reset-week">${icon("trash")} Reset this week's season</button>
-    <p class="muted">Export downloads all data as JSON. Reset deletes only this week's entries (records & badges stay).</p>
+    <p class="muted">The app auto-saves every change on this device. <b>Save now</b> forces a save; <b>Export</b> downloads a backup file you can keep or move to another device. Private browsing or clearing site data will erase saved data — export a backup to be safe.</p>
     <div class="section-title">${icon("lock")} Change PIN</div>
     <div class="inline-form"><input id="pinNew" type="password" inputmode="numeric" maxlength="4" placeholder="new 4-digit PIN"><button class="btn ghost small" data-action="pin-change">Set</button></div>
   </div>`;
 
   return html;
+}
+
+/* Human-readable save status for the Parent > Data card. */
+function saveStatusText() {
+  if (!storageOK()) return "⚠️ This browser is blocking saved data (private mode?) — use Export to keep a backup file.";
+  const t = lastSavedAt();
+  if (!t) return "No save yet on this device.";
+  const d = new Date(t);
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const day = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `✓ All changes saved on this device · last save ${day} ${time}`;
+}
+function refreshSaveStatus() {
+  const el = document.getElementById("saveStatus");
+  if (el) el.textContent = saveStatusText();
 }
 
 /* ---------------- main render ---------------- */
@@ -792,6 +809,11 @@ document.addEventListener("click", ev => {
         saveState(); render(); toast(`Season reset — ${n} entries cleared.`);
       }
       break;
+    case "save-now":
+      saveState();
+      refreshSaveStatus();
+      toast(storageOK() ? "All data saved on this device ✓" : "Couldn't save — browser is blocking storage. Use Export!");
+      break;
     case "export-json": {
       const blob = new Blob([JSON.stringify(S, null, 2)], { type: "application/json" });
       const aEl = document.createElement("a");
@@ -863,6 +885,14 @@ window.addEventListener("resize", () => {
   clearTimeout(resizeT);
   resizeT = setTimeout(() => { if (S.activeTab === "boards") drawCharts(); }, 200);
 });
+
+/* ---- persistence safety nets ---- */
+// Save whenever the page is about to go away (tab close, refresh, …).
+window.addEventListener("beforeunload", () => { try { saveState(); } catch (e) {} });
+// Also re-save periodically, so a crash between edits loses at most a minute.
+setInterval(() => { try { saveState(); } catch (e) {} }, 60000);
+// Keep the Parent > Data save-status line fresh after every save.
+window.addEventListener("fl-saved", refreshSaveStatus);
 
 /* ---------------- init ---------------- */
 (function init() {

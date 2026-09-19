@@ -1,7 +1,7 @@
 # Family Leaderboard
 
 A kid-friendly motivational leaderboard web app for tracking good behaviors —
-piano/guitar practice, homework, chores, bedtime, and healthy eating — with XP,
+piano/guitar practice, reading, homework, chores, bedtime, and healthy eating — with XP,
 levels, weekly seasons, personal records, badges, streaks, and a family
 head-to-head board.
 
@@ -50,7 +50,15 @@ syncing via export/import, that's exactly what you want.)
 ## How data is stored
 
 - Everything lives in the browser's `localStorage` under **one namespaced
-  key**: `familyLeaderboard.v1`.
+  key**: `familyLeaderboard.v1`, plus an automatic backup copy
+  (`familyLeaderboard.v1.backup`) that the app restores from if the main
+  copy ever goes missing.
+- Every change auto-saves instantly; the app also saves when the page closes
+  and once a minute as a safety net. **Parent → Data → Save now** forces a
+  save and shows the last-saved time.
+- Note: data is per-device/per-browser. Private/incognito windows and
+  "clear site data" wipe it — use **Parent → Data → Export** to download a
+  backup file, and **Import** to restore it or move it to another device.
 - Dates are stored as local `YYYY-MM-DD` strings; **weeks start on Monday**;
   bedtimes are `HH:MM` strings.
 - The parent PIN is stored as a non-reversible numeric hash. It is a
@@ -62,14 +70,14 @@ syncing via export/import, that's exactly what you want.)
 ## Features
 
 - **Log tab** — one-tap logging per activity; start/stop practice timers for
-  piano & guitar that log focused minutes.
+  piano, guitar, and reading that log focused minutes.
 - **Boards tab** — weekly Season Standings (auto-resets Mondays, with
   this-week-vs-last-week deltas), practice-minutes bar chart, all-time Family
   Board, last-week recap, and a monthly streak heatmap calendar.
 - **Records tab** — personal bests per activity (most in a day, earliest
   bedtime, longest streaks) with full-screen confetti when a record breaks.
-- **Badges tab** — 6 earnable badges (Early Bird, Night Owl Tamer, Double
-  Instrument Day, Century Club, Homework Hero, Veggie Voyager).
+- **Badges tab** — 7 earnable badges (Early Bird, Night Owl Tamer, Double
+  Instrument Day, Century Club, Homework Hero, Veggie Voyager, Bookworm).
 - **Parent tab** (PIN-gated) — rename profiles, add/edit/delete custom
   activities, review/edit/delete entries, grant & use streak-freeze tokens
   (1 per profile per week), reset the season, export/import JSON, change PIN.
