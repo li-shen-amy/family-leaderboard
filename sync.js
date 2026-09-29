@@ -1,18 +1,34 @@
 "use strict";
 /* ============================================================
    sync.js — optional cross-device cloud sync.
-   Backend: any Supabase project (free tier). All data is encrypted
-   in the browser with the family sync code BEFORE upload, so the
-   server only ever sees ciphertext.
-   Table (create once in Supabase SQL editor):
-     create table family_sync (
-       code text primary key,
-       payload jsonb not null,
-       updated_at timestamptz default now()
-     );
-     alter table family_sync enable row level security;
-     create policy "open sync" on family_sync for all
-       using (true) with check (true);
+   Backend: any Supabase project (free tier). Sign in with an
+   email + password (Supabase Auth, see auth.js); your row is keyed
+   by your user id and protected by row-level security, so only
+   you can read/write it. The payload is encrypted in the browser
+   with your login password BEFORE upload (AES-GCM), so the server
+   only ever sees ciphertext.
+
+   One-time table setup (Supabase SQL editor). If you already made
+   family_sync for the old code-based sync, run the MIGRATION block;
+   otherwise run the FRESH block:
+
+   -- MIGRATION (old table exists) --
+   alter table family_sync drop constraint if exists family_sync_pkey;
+   alter table family_sync add column if not exists user_id uuid
+     unique references auth.users(id);
+   drop policy if exists "open sync" on family_sync;
+   create policy "own row" on family_sync for all
+     using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+   -- FRESH (no old table) --
+   create table family_sync (
+     user_id uuid primary key references auth.users(id),
+     payload jsonb not null,
+     updated_at timestamptz default now()
+   );
+   alter table family_sync enable row level security;
+   create policy "own row" on family_sync for all
+     using (auth.uid() = user_id) with check (auth.uid() = user_id);
    ============================================================ */
 
 /* ---------- base64 helpers ---------- */
@@ -29,7 +45,7 @@ function b64ToBuf(b64) {
   return bytes.buffer;
 }
 
-/* ---------- end-to-end encryption (AES-GCM, key from family code) ---------- */
+/* ---------- end-to-end encryption (AES-GCM, key from login password) ---------- */
 async function deriveKey(code, saltBuf) {
   const enc = new TextEncoder();
   const base = await crypto.subtle.importKey("raw", enc.encode(code), "PBKDF2", false, ["deriveKey"]);
@@ -53,28 +69,39 @@ async function decryptState(code, env) {
   return JSON.parse(new TextDecoder().decode(raw));
 }
 
-/* ---------- Supabase REST ---------- */
+/* ---------- Supabase REST (authenticated: the user's own JWT) ---------- */
 function sbBase() { return String(S.cloud.url || "").replace(/\/+$/, ""); }
-function sbHeaders() {
+function sbHeaders(session) {
   const k = S.cloud.key;
-  return { apikey: k, Authorization: "Bearer " + k, "Content-Type": "application/json" };
+  return {
+    apikey: k,
+    Authorization: "Bearer " + session.accessToken,
+    "Content-Type": "application/json",
+  };
 }
 function cloudConfigured() {
-  return !!(S.cloud && S.cloud.provider === "supabase" && S.cloud.url && S.cloud.key && S.cloud.code);
+  return !!(
+    S.cloud && S.cloud.provider === "supabase" &&
+    S.cloud.url && S.cloud.key &&
+    typeof loggedIn === "function" && loggedIn() &&
+    typeof getSessionPassword === "function" && getSessionPassword()
+  );
 }
 async function sbRead() {
+  const session = await ensureSession();
   const res = await fetch(
-    `${sbBase()}/rest/v1/family_sync?code=eq.${encodeURIComponent(S.cloud.code)}&select=payload,updated_at`,
-    { headers: sbHeaders() });
+    `${sbBase()}/rest/v1/family_sync?user_id=eq.${session.userId}&select=payload,updated_at`,
+    { headers: sbHeaders(session) });
   if (!res.ok) throw new Error(`sync read failed (HTTP ${res.status})`);
   const rows = await res.json();
   return rows[0] || null;
 }
 async function sbWrite(envelope) {
-  const res = await fetch(`${sbBase()}/rest/v1/family_sync`, {
+  const session = await ensureSession();
+  const res = await fetch(`${sbBase()}/rest/v1/family_sync?on_conflict=user_id`, {
     method: "POST",
-    headers: Object.assign({ Prefer: "resolution=merge-duplicates" }, sbHeaders()),
-    body: JSON.stringify({ code: S.cloud.code, payload: envelope }),
+    headers: Object.assign({ Prefer: "resolution=merge-duplicates" }, sbHeaders(session)),
+    body: JSON.stringify({ user_id: session.userId, payload: envelope }),
   });
   if (!res.ok) throw new Error(`sync write failed (HTTP ${res.status})`);
 }
@@ -141,7 +168,7 @@ function updateCloudUI() {
 }
 
 async function pushCloud(silent) {
-  if (!cloudConfigured()) { if (!silent) toast("Set up cloud sync first (Parent → Data)."); return; }
+  if (!cloudConfigured()) { if (!silent) toast("Log in to enable cloud sync (Parent → Cloud Sync)."); return; }
   if (syncBusy) return;
   syncBusy = true;
   try {
@@ -150,12 +177,12 @@ async function pushCloud(silent) {
     try { row = await sbRead(); } catch (e) { /* first push: no row yet */ }
     if (row && row.payload) {
       let remote;
-      try { remote = await decryptState(S.cloud.code, row.payload); }
-      catch (e) { throw new Error("Couldn't decrypt cloud data — wrong family code?"); }
+      try { remote = await decryptState(getSessionPassword(), row.payload); }
+      catch (e) { throw new Error("Couldn't decrypt cloud data — wrong password? Log in again on this device."); }
       base = mergeStates(S, remote);
     }
     const copy = Object.assign({}, base, { parentUnlocked: false });
-    const env = await encryptState(S.cloud.code, copy);
+    const env = await encryptState(getSessionPassword(), copy);
     await sbWrite(env);
     S = base;
     S.updatedAt = Date.now();
@@ -176,15 +203,15 @@ async function pushCloud(silent) {
 }
 
 async function pullCloud(silent) {
-  if (!cloudConfigured()) { if (!silent) toast("Set up cloud sync first (Parent → Data)."); return; }
+  if (!cloudConfigured()) { if (!silent) toast("Log in to enable cloud sync (Parent → Cloud Sync)."); return; }
   if (syncBusy) return;
   syncBusy = true;
   try {
     const row = await sbRead();
-    if (!row || !row.payload) { if (!silent) toast("Nothing in the cloud for this code — check the family code, or push first."); return; }
+    if (!row || !row.payload) { if (!silent) toast("Nothing in the cloud for this account yet — push from your other device first."); return; }
     let remote;
-    try { remote = await decryptState(S.cloud.code, row.payload); }
-    catch (e) { throw new Error("Couldn't decrypt cloud data — wrong family code?"); }
+    try { remote = await decryptState(getSessionPassword(), row.payload); }
+    catch (e) { throw new Error("Couldn't decrypt cloud data — wrong password? Log in again on this device."); }
     S = mergeStates(S, remote);
     S.cloud.lastSyncAt = Date.now();
     S.cloud.lastError = null;

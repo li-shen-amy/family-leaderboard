@@ -388,40 +388,71 @@ function renderParent() {
     `<div style="margin-top:6px"><button class="btn primary small" data-action="rename-save">${icon("check")} Save names</button></div>
     <p class="muted">Photos are resized small and stored on this device only.</p></div>`;
 
-  // Cloud sync (optional, free)
+  // Cloud sync (optional, free) — email + password login via Supabase Auth
+  const cloudSess = (typeof loggedIn === "function") && loggedIn();
+  const cloudSessEmail = cloudSess ? (((typeof getSession === "function") && getSession()) || {}).email || "" : "";
   html += `<div class="card"><div class="section-title">${icon("upload")} Cloud Sync <span class="muted" style="font-weight:400">· optional, free</span></div>
-    <p class="sub">Keep data safe across devices &amp; browsers. Data is encrypted on this device with your family code — the server only sees scrambled text.</p>
-    <div class="today-line" id="cloudStatus">${esc(cloudStatusText())}</div>
-    <label class="field">Supabase URL</label>
+    <p class="sub">Sign in on any device to see your saved data. Everything is encrypted on this device with your password — the server only sees scrambled text.</p>
+    <div class="today-line" id="cloudStatus">${esc(cloudStatusText())}</div>`;
+  if (!cloudSess) {
+    html += `
+    <label class="field">Supabase URL <span class="muted">(base URL only — no /rest/v1)</span></label>
     <input id="cloud-url" value="${esc(S.cloud.url)}" placeholder="https://xyz.supabase.co" autocomplete="off">
     <label class="field">Anon (public) key</label>
     <input id="cloud-key" type="password" value="${esc(S.cloud.key)}" placeholder="eyJ…" autocomplete="off">
-    <label class="field">Family sync code — your encryption key, don't forget it!</label>
-    <input id="cloud-code" type="password" value="${esc(S.cloud.code)}" placeholder="e.g. sunny-tiger-42" autocomplete="off">
-    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:700">
-      <input type="checkbox" id="cloud-auto" ${S.cloud.auto ? "checked" : ""} style="width:auto"> Auto-sync changes to cloud</label>
+    <label class="field">Email</label>
+    <input id="cloud-email" type="email" value="${esc(S.cloud.email)}" placeholder="you@example.com" autocomplete="email">
+    <label class="field">Password <span class="muted">(min 6 chars — also your encryption key, don't forget it!)</span></label>
+    <input id="cloud-pw" type="password" placeholder="••••••••" autocomplete="current-password">
     <div class="btn-row" style="margin-top:10px">
-      <button class="btn primary small" data-action="cloud-save">${icon("check")} Save</button>
+      <button class="btn primary small" data-action="cloud-save">${icon("check")} Save settings</button>
+      <button class="btn blue small" data-action="cloud-signup">${icon("plus")} Sign up</button>
+      <button class="btn ghost small" data-action="cloud-login">${icon("check")} Log in</button>
+    </div>`;
+  } else {
+    html += `
+    <div class="today-line">Signed in as <b>${esc(cloudSessEmail)}</b></div>
+    <div class="btn-row" style="margin-top:10px">
       <button class="btn blue small" data-action="cloud-push">${icon("upload")} Push</button>
       <button class="btn ghost small" data-action="cloud-pull">${icon("download")} Pull</button>
+      <button class="btn ghost small" data-action="cloud-logout">${icon("x")} Log out</button>
     </div>
+    <label class="field" style="margin-top:12px">Change password</label>
+    <input id="cloud-newpw" type="password" placeholder="New password (min 6 chars)" autocomplete="new-password">
+    <div class="btn-row" style="margin-top:6px">
+      <button class="btn small" data-action="cloud-changepw">${icon("check")} Change password</button>
+    </div>`;
+  }
+  html += `
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:700">
+      <input type="checkbox" id="cloud-auto" ${S.cloud.auto ? "checked" : ""} style="width:auto"> Auto-sync changes to cloud</label>
     <details style="margin-top:10px"><summary style="font-weight:700;cursor:pointer">One-time setup guide (~5 min, free)</summary>
       <ol class="muted" style="line-height:1.7;padding-left:20px">
         <li>Create a free account at <b>supabase.com</b> → <b>New project</b>.</li>
-        <li>Open <b>SQL Editor</b> → New query, paste &amp; run:
-          <pre style="white-space:pre-wrap;background:#f4f1ff;padding:8px;border-radius:8px;font-size:.75rem">create table family_sync (
-  code text primary key,
+        <li>Open <b>SQL Editor</b> → New query, paste &amp; run. Already made the old <i>family_sync</i> table? Run the <b>migration</b> block. Starting fresh? Run the <b>fresh</b> block instead:
+          <pre style="white-space:pre-wrap;background:#f4f1ff;padding:8px;border-radius:8px;font-size:.75rem">-- MIGRATION (old table exists) --
+alter table family_sync drop constraint if exists family_sync_pkey;
+alter table family_sync add column if not exists user_id uuid
+  unique references auth.users(id);
+drop policy if exists "open sync" on family_sync;
+create policy "own row" on family_sync for all
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- FRESH INSTALL (no old table) --
+create table family_sync (
+  user_id uuid primary key references auth.users(id),
   payload jsonb not null,
   updated_at timestamptz default now()
 );
 alter table family_sync enable row level security;
-create policy "open sync" on family_sync for all
-  using (true) with check (true);</pre></li>
-        <li><b>Project Settings → API</b>: copy the <b>Project URL</b> and the <b>anon public</b> key.</li>
-        <li>Paste them above, invent a <b>family sync code</b>, tap <b>Save</b>, then <b>Push</b>.</li>
-        <li>On the other device/browser: paste the same URL, key &amp; code, tap <b>Save</b>, then <b>Pull</b>.</li>
+create policy "own row" on family_sync for all
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);</pre></li>
+        <li>In Supabase go to <b>Authentication → Sign In/Up</b> and turn <b>OFF</b> "Confirm email" (recommended for a family app).</li>
+        <li><b>Project Settings → API</b>: copy the <b>Project URL</b> (base URL only) and the <b>anon public</b> key.</li>
+        <li>Paste them above, tap <b>Save settings</b>, enter an email + password, then <b>Sign up</b>. Hit <b>Push</b> to upload this device's data.</li>
+        <li>On the other device: paste the same URL + key, <b>Save settings</b>, enter the same email + password, <b>Log in</b>, then <b>Pull</b>.</li>
       </ol>
-      <p class="muted">Your payload is encrypted — Supabase can't read it. Anyone who guesses your code could overwrite it, so pick a code that's hard to guess.</p>
+      <p class="muted">Your password is also your encryption key — Supabase can't read your data, but if you forget the password the cloud copy can't be recovered. Write it down somewhere safe.</p>
     </details>
   </div>`;
 
@@ -711,6 +742,74 @@ function entryFormHTML(e) {
 /* ---------------- events ---------------- */
 function val(id) { const el = document.getElementById(id); return el ? el.value.trim() : ""; }
 
+/* ---------- cloud auth form helpers (see auth.js) ---------- */
+function saveCloudForm() {
+  S.cloud.provider = "supabase";
+  const urlEl = document.getElementById("cloud-url");
+  // Auto-fix the classic gotcha: the Data API page shows the URL with
+  // /rest/v1 appended, but the app adds that path itself.
+  if (urlEl) S.cloud.url = urlEl.value.trim().replace(/\/rest\/v1\/?$/, "").replace(/\/+$/, "");
+  const keyEl = document.getElementById("cloud-key");
+  if (keyEl) S.cloud.key = keyEl.value.trim();
+  const emailEl = document.getElementById("cloud-email");
+  if (emailEl && emailEl.value.trim()) S.cloud.email = emailEl.value.trim();
+  const autoEl = document.getElementById("cloud-auto");
+  if (autoEl) S.cloud.auto = autoEl.checked;
+  S.cloud.lastError = null;
+  saveState({ touch: false });
+}
+function validEmail(e) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e || ""); }
+function cloudPw(id) { const el = document.getElementById(id); return el ? el.value : ""; }
+
+async function handleCloudSignup() {
+  saveCloudForm();
+  const email = val("cloud-email"), pw = cloudPw("cloud-pw");
+  if (!S.cloud.url || !S.cloud.key) { toast("Save your Supabase URL and anon key first."); return; }
+  if (!validEmail(email)) { toast("Enter a valid email address."); return; }
+  if (pw.length < 6) { toast("Password must be at least 6 characters."); return; }
+  try {
+    const r = await authSignup(email, pw);
+    S.cloud.email = email;
+    saveState({ touch: false });
+    toast(r.needsConfirm
+      ? "Account created — check your email to confirm it, then log in."
+      : "Signed up & logged in ✓ — hit Push to upload this device's data.");
+  } catch (e) { toast("Sign-up failed: " + (e.message || e)); }
+  render();
+}
+async function handleCloudLogin() {
+  saveCloudForm();
+  const email = val("cloud-email"), pw = cloudPw("cloud-pw");
+  if (!S.cloud.url || !S.cloud.key) { toast("Save your Supabase URL and anon key first."); return; }
+  if (!validEmail(email) || !pw) { toast("Enter your email and password."); return; }
+  try {
+    await authLogin(email, pw);
+    S.cloud.email = email;
+    S.cloud.lastError = null;
+    saveState({ touch: false });
+    toast("Logged in ✓ — hit Pull to download your saved data.");
+  } catch (e) { toast("Log-in failed: " + (e.message || e)); }
+  render();
+}
+async function handleCloudLogout() {
+  saveCloudForm();
+  try { await authLogout(); toast("Logged out."); }
+  catch (e) { toast("Log-out issue: " + (e.message || e)); }
+  render();
+}
+async function handleCloudChangePw() {
+  saveCloudForm();
+  const pw = cloudPw("cloud-newpw");
+  if (pw.length < 6) { toast("New password must be at least 6 characters."); return; }
+  try {
+    await authChangePassword(pw);
+    S.cloud.lastError = null;
+    saveState({ touch: false });
+    toast("Password changed & cloud copy re-encrypted ✓");
+  } catch (e) { toast("Password change failed: " + (e.message || e)); }
+  render();
+}
+
 document.addEventListener("click", ev => {
   const el = ev.target.closest("[data-action]");
   if (!el) return;
@@ -885,20 +984,17 @@ document.addEventListener("click", ev => {
       break;
 
     case "cloud-save": {
-      S.cloud.provider = "supabase";
-      S.cloud.url = val("cloud-url").replace(/\/+$/, "");
-      S.cloud.key = val("cloud-key");
-      S.cloud.code = val("cloud-code");
-      const autoEl = document.getElementById("cloud-auto");
-      S.cloud.auto = !!(autoEl && autoEl.checked);
-      S.cloud.lastError = null;
-      saveState({ touch: false });
+      saveCloudForm();
       updateCloudUI();
-      toast(cloudConfigured() ? "Cloud settings saved." : "Fill in URL, key and family code to enable sync.");
+      toast(S.cloud.url && S.cloud.key ? "Cloud settings saved." : "Fill in the Supabase URL and anon key first.");
       break;
     }
-    case "cloud-push": pushCloud(false); break;
-    case "cloud-pull": pullCloud(false); break;
+    case "cloud-signup": handleCloudSignup(); break;
+    case "cloud-login": handleCloudLogin(); break;
+    case "cloud-logout": handleCloudLogout(); break;
+    case "cloud-changepw": handleCloudChangePw(); break;
+    case "cloud-push": saveCloudForm(); pushCloud(false); break;
+    case "cloud-pull": saveCloudForm(); pullCloud(false); break;
 
     case "badge-add-open": openModal("Add Badge", "plus", badgeFormHTML(null)); break;
     case "badge-edit-open": {

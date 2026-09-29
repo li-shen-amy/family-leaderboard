@@ -63,27 +63,31 @@ syncing via export/import, that's exactly what you want.)
 ### Cloud sync (optional, free)
 
 For automatic cross-device sync, the app supports a free
-[Supabase](https://supabase.com) project as a sync backend:
+[Supabase](https://supabase.com) project as a sync backend, with
+**email + password login** (Supabase Auth):
 
-1. Create a free Supabase project, open **SQL Editor**, and run:
-   ```sql
-   create table family_sync (
-     code text primary key,
-     payload jsonb not null,
-     updated_at timestamptz default now()
-   );
-   alter table family_sync enable row level security;
-   create policy "open sync" on family_sync for all
-     using (true) with check (true);
-   ```
-2. Copy the **Project URL** and **anon public key** from Project Settings → API.
-3. In the app: **Parent → Cloud Sync**, paste them, invent a **family sync
-   code**, Save, then Push. On the other device, enter the same three values,
-   Save, then Pull.
+1. Create a free Supabase project. If you already created the old
+   `family_sync` table, open **SQL Editor** and run the **migration**
+   block; otherwise run the **fresh** block (both are in the app's
+   built-in setup guide under Parent → Cloud Sync).
+2. In Supabase: **Authentication → Sign In/Up** → turn **OFF**
+   "Confirm email" (recommended for a family app).
+3. Copy the **Project URL** (base URL only, no `/rest/v1`) and the
+   **anon public key** from Project Settings → API.
+4. In the app: **Parent → Cloud Sync**, paste them, tap **Save
+   settings**, enter an email + password (min 6 chars), and **Sign
+   up**. Then **Push** to upload this device's data.
+5. On the other device: paste the same URL + key, **Save settings**,
+   enter the same email + password, **Log in**, then **Pull**.
 
-Privacy: your data is encrypted in the browser (AES-GCM, key derived from
-your family code via PBKDF2) before upload — Supabase only ever stores
-ciphertext. Sync merges both sides (entries are unioned; newer profile
+Privacy: your data is encrypted in the browser (AES-GCM, key derived
+from your login password via PBKDF2) before upload — Supabase only
+ever stores ciphertext, and row-level security means only your
+account can read your row. The password lives in memory only: after
+a page reload you log in again to sync (local data always works
+offline). If you forget the password, the cloud copy can't be
+decrypted — write it down somewhere safe.
+Sync merges both sides (entries are unioned; newer profile
 settings win), so edits on two devices combine instead of clobbering.
 Deleted entries are not propagated — delete on each device if needed.
 - Dates are stored as local `YYYY-MM-DD` strings; **weeks start on Monday**;

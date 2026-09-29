@@ -108,10 +108,13 @@ function defaultState() {
     freezes: { kid: null, dad: null },   // {week, tokens, used:[dateStr]}
     cloud: {                    // optional cross-device sync (Supabase, encrypted)
       provider: null,           // null | "supabase"
-      url: "", key: "", code: "",
+      url: "", key: "",         // Supabase URL + anon public key (for auth endpoints)
+      email: "",                // login email (prefilled on the form, synced like other settings)
       auto: false,
       lastSyncAt: null,
       lastError: null,
+      // NOTE: session tokens live in their own localStorage key (auth.js),
+      // and the password lives in memory only — neither is part of S.
     },
     updatedAt: 0,                // ms epoch of last local change (for sync merge)
     parentUnlocked: false,       // session-only; always reset on load
@@ -155,6 +158,8 @@ function loadState() {
   }
   if (!Array.isArray(merged.customBadges)) merged.customBadges = [];
   if (!merged.cloud) merged.cloud = defaultState().cloud;
+  merged.cloud = Object.assign(defaultState().cloud, merged.cloud);
+  delete merged.cloud.code; // old code-based sync retired in favor of login
   if (typeof merged.updatedAt !== "number") merged.updatedAt = 0;
   if (recovered) {
     // Re-seed the primary key from the backup so the next load is fast.
